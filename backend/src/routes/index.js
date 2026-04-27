@@ -1,6 +1,7 @@
 const { Router } = require('express');
 const { authRouter } = require('../modules/auth/auth.routes');
 const { householdsRouter } = require('../modules/households/households.routes');
+const { scheduleRouter } = require('../modules/schedule/schedule.routes');
 
 const apiRouter = Router();
 
@@ -10,5 +11,6 @@ apiRouter.get('/health', (req, res) => {
 
 apiRouter.use('/auth', authRouter);
 apiRouter.use('/households', householdsRouter);
+apiRouter.use('/schedule', scheduleRouter);
 
 module.exports = { apiRouter };

@@ -18,12 +18,14 @@ const createHouseholdMemberTx = async (
 ) => {
   const now = Date.now();
 
-  await db.run(
+  const result = await db.run(
     `INSERT INTO household_members
       (household_id, user_id, name, role, date_of_birth, can_manage_household, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     [householdId, userId, name, role, dateOfBirth, canManageHousehold ? 1 : 0, now, now],
   );
+
+  return result.lastID;
 };
 
 const getHouseholdWithMembersById = async (householdId, db = null) => {
