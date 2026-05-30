@@ -1,5 +1,22 @@
 const { getDb } = require('../../db/connection');
 
+const EVENT_COLUMNS = `
+  e.id,
+  e.household_id,
+  e.member_id,
+  e.title,
+  e.start_at,
+  e.end_at,
+  e.is_all_day,
+  e.location,
+  e.description,
+  e.source,
+  e.external_id,
+  e.created_at,
+  e.updated_at,
+  e.deleted_at,
+  hm.name AS member_name`;
+
 const findMemberInHousehold = async (householdId, memberId, db = null) => {
   const database = db || (await getDb());
 
@@ -22,25 +39,191 @@ const findUserMembership = async (householdId, userId, db = null) => {
   );
 };
 
+const findUserMembershipsByUserId = async (userId, db = null) => {
+  const database = db || (await getDb());
+
+  return database.all(
+    `SELECT id, household_id, user_id, role, can_manage_household
+     FROM household_members
+     WHERE user_id = ?
+     ORDER BY household_id ASC, id ASC`,
+    [userId],
+  );
+};
+
+const findHouseholdMemberByUserId = async (householdId, userId, db = null) => {
+  const database = db || (await getDb());
+
+  return database.get(
+    `SELECT id, household_id, user_id, role, can_manage_household
+     FROM household_members
+     WHERE household_id = ? AND user_id = ?
+     ORDER BY id ASC
+     LIMIT 1`,
+    [householdId, userId],
+  );
+};
+
 const createEventTx = async (
   db,
-  { householdId, memberId, title = '', startAt, endAt, source = 'manual', externalId = null },
+  {
+    householdId,
+    memberId,
+    title = '',
+    startAt,
+    endAt,
+    isAllDay = false,
+    location = null,
+    description = null,
+    source = 'manual',
+    externalId = null,
+  },
 ) => {
   const now = Date.now();
 
   const result = await db.run(
     `INSERT INTO events
-      (household_id, member_id, title, start_at, end_at, source, external_id, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [householdId, memberId, title, startAt, endAt, source, externalId, now, now],
+      (
+        household_id,
+        member_id,
+        title,
+        start_at,
+        end_at,
+        is_all_day,
+        location,
+        description,
+        source,
+        external_id,
+        created_at,
+        updated_at,
+        deleted_at
+      )
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+    [
+      householdId,
+      memberId,
+      title,
+      startAt,
+      endAt,
+      isAllDay ? 1 : 0,
+      location,
+      description,
+      source,
+      externalId,
+      now,
+      now,
+    ],
   );
 
   return result.lastID;
 };
 
+const getEventById = async (eventId, db = null) => {
+  const database = db || (await getDb());
+
+  return database.get(
+    `SELECT ${EVENT_COLUMNS}
+     FROM events e
+     INNER JOIN household_members hm ON hm.id = e.member_id
+     WHERE e.id = ?`,
+    [eventId],
+  );
+};
+
+const listEventsByHousehold = async (
+  householdId,
+  { startAt = null, endAt = null, includeDeleted = false } = {},
+  db = null,
+) => {
+  const database = db || (await getDb());
+  const conditions = ['e.household_id = ?'];
+  const params = [householdId];
+
+  if (!includeDeleted) {
+    conditions.push('e.deleted_at IS NULL');
+  }
+
+  if (Number.isFinite(startAt)) {
+    conditions.push('e.end_at > ?');
+    params.push(startAt);
+  }
+
+  if (Number.isFinite(endAt)) {
+    conditions.push('e.start_at < ?');
+    params.push(endAt);
+  }
+
+  return database.all(
+    `SELECT ${EVENT_COLUMNS}
+     FROM events e
+     INNER JOIN household_members hm ON hm.id = e.member_id
+     WHERE ${conditions.join(' AND ')}
+     ORDER BY e.start_at ASC, e.id ASC`,
+    params,
+  );
+};
+
+const findHouseholdMembersByHouseholdId = async (householdId, db = null) => {
+  const database = db || (await getDb());
+
+  return database.all(
+    `SELECT id, household_id, user_id, name, role, can_manage_household
+     FROM household_members
+     WHERE household_id = ?
+     ORDER BY id ASC`,
+    [householdId],
+  );
+};
+
+const updateEventTx = async (
+  db,
+  { eventId, memberId, title, startAt, endAt, isAllDay = false, location = null, description = null },
+) => {
+  const now = Date.now();
+
+  await db.run(
+    `UPDATE events
+     SET
+      member_id = ?,
+      title = ?,
+      start_at = ?,
+      end_at = ?,
+      is_all_day = ?,
+      location = ?,
+      description = ?,
+      updated_at = ?
+     WHERE id = ?`,
+    [memberId, title, startAt, endAt, isAllDay ? 1 : 0, location, description, now, eventId],
+  );
+};
+
+const softDeleteEventTx = async (db, { eventId, deletedAt }) => {
+  const now = Date.now();
+
+  const result = await db.run(
+    `UPDATE events
+     SET deleted_at = ?, updated_at = ?
+     WHERE id = ? AND deleted_at IS NULL`,
+    [deletedAt, now, eventId],
+  );
+
+  return result.changes;
+};
+
 const upsertSyncedEventTx = async (
   db,
-  { householdId, memberId, title = '', startAt, endAt, source = 'sync', externalId = null },
+  {
+    householdId,
+    memberId,
+    title = '',
+    startAt,
+    endAt,
+    isAllDay = false,
+    location = null,
+    description = null,
+    source = 'sync',
+    externalId = null,
+  },
 ) => {
   const now = Date.now();
 
@@ -51,6 +234,9 @@ const upsertSyncedEventTx = async (
       title,
       startAt,
       endAt,
+      isAllDay,
+      location,
+      description,
       source,
       externalId,
     });
@@ -69,6 +255,9 @@ const upsertSyncedEventTx = async (
       title,
       startAt,
       endAt,
+      isAllDay,
+      location,
+      description,
       source,
       externalId,
     });
@@ -76,9 +265,18 @@ const upsertSyncedEventTx = async (
 
   await db.run(
     `UPDATE events
-     SET member_id = ?, title = ?, start_at = ?, end_at = ?, updated_at = ?
+     SET
+      member_id = ?,
+      title = ?,
+      start_at = ?,
+      end_at = ?,
+      is_all_day = ?,
+      location = ?,
+      description = ?,
+      updated_at = ?,
+      deleted_at = NULL
      WHERE id = ?`,
-    [memberId, title, startAt, endAt, now, existing.id],
+    [memberId, title, startAt, endAt, isAllDay ? 1 : 0, location, description, now, existing.id],
   );
 
   return existing.id;
@@ -124,7 +322,10 @@ const getUnresolvedConflictsByHouseholdIds = async (householdIds, db = null) => 
     FROM conflicts c
     INNER JOIN events e1 ON e1.id = c.event_id_1
     INNER JOIN events e2 ON e2.id = c.event_id_2
-    WHERE c.resolved = 0 AND c.household_id IN (${placeholders})
+    WHERE c.resolved = 0
+      AND c.household_id IN (${placeholders})
+      AND e1.deleted_at IS NULL
+      AND e2.deleted_at IS NULL
     ORDER BY c.detected_at DESC, c.id DESC`,
     householdIds,
   );
@@ -133,7 +334,14 @@ const getUnresolvedConflictsByHouseholdIds = async (householdIds, db = null) => 
 module.exports = {
   findMemberInHousehold,
   findUserMembership,
+  findUserMembershipsByUserId,
+  findHouseholdMemberByUserId,
+  getEventById,
+  listEventsByHousehold,
+  findHouseholdMembersByHouseholdId,
   createEventTx,
+  updateEventTx,
+  softDeleteEventTx,
   upsertSyncedEventTx,
   findAccessibleHouseholdIdsByUserId,
   getUnresolvedConflictsByHouseholdIds,

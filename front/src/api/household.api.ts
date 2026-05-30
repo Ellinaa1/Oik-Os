@@ -55,6 +55,21 @@ const extractErrorMessage = async (response: Response): Promise<string> => {
   return `Request failed with status ${response.status}`;
 };
 
+const parseJsonPayload = async <T>(response: Response): Promise<T> => {
+  const contentType = (response.headers.get('content-type') || '').toLowerCase();
+
+  if (!contentType.includes('application/json')) {
+    const preview = (await response.text()).trim().slice(0, 120);
+    throw new Error(
+      preview.startsWith('<!doctype')
+        ? 'API returned HTML instead of JSON. Start backend and ensure Vite proxy forwards /api to backend.'
+        : `Unexpected API response format: ${contentType || 'unknown'}`,
+    );
+  }
+
+  return (await response.json()) as T;
+};
+
 const parseHousehold = (payload: unknown): Household => {
   const root = (payload || {}) as Record<string, unknown>;
   const householdRaw = (root.household ?? root) as Record<string, unknown>;
@@ -84,7 +99,7 @@ export const getMyHousehold = async (): Promise<Household> => {
     throw new ApiError(await extractErrorMessage(response), response.status);
   }
 
-  const payload = (await response.json()) as unknown;
+  const payload = await parseJsonPayload<unknown>(response);
   return parseHousehold(payload);
 };
 
@@ -101,7 +116,7 @@ export const sendHouseholdInvite = async (payload: InviteMemberPayload): Promise
     throw new ApiError(await extractErrorMessage(response), response.status);
   }
 
-  const data = (await response.json()) as { invite?: unknown } | unknown;
+  const data = await parseJsonPayload<{ invite?: unknown } | unknown>(response);
   const inviteRaw = (data as { invite?: unknown }).invite ?? data;
   return normalizeInvite(inviteRaw);
 };

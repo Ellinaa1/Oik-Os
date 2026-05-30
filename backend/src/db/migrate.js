@@ -1,3 +1,16 @@
+const hasColumn = async (db, tableName, columnName) => {
+  const columns = await db.all(`PRAGMA table_info(${tableName});`);
+  return columns.some((column) => column.name === columnName);
+};
+
+const ensureColumn = async (db, tableName, columnName, definition) => {
+  if (await hasColumn(db, tableName, columnName)) {
+    return;
+  }
+
+  await db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition};`);
+};
+
 const runMigrations = async (db) => {
   await db.exec(`
     CREATE TABLE IF NOT EXISTS users (
@@ -9,6 +22,8 @@ const runMigrations = async (db) => {
       updated_at INTEGER NOT NULL
     );
   `);
+
+  await ensureColumn(db, 'users', 'preferences_json', "JSONB NOT NULL DEFAULT '{}'");
 
   await db.exec(`
     CREATE TABLE IF NOT EXISTS email_verification_tokens (
@@ -83,6 +98,15 @@ const runMigrations = async (db) => {
 
   await db.exec(
     'CREATE UNIQUE INDEX IF NOT EXISTS idx_events_sync_unique ON events(household_id, source, external_id) WHERE external_id IS NOT NULL;',
+  );
+
+  await ensureColumn(db, 'events', 'is_all_day', 'INTEGER NOT NULL DEFAULT 0');
+  await ensureColumn(db, 'events', 'location', 'TEXT');
+  await ensureColumn(db, 'events', 'description', 'TEXT');
+  await ensureColumn(db, 'events', 'deleted_at', 'INTEGER');
+
+  await db.exec(
+    'CREATE INDEX IF NOT EXISTS idx_events_household_deleted_time ON events(household_id, deleted_at, start_at);',
   );
 
   await db.exec(`

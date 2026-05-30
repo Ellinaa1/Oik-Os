@@ -16,28 +16,50 @@ const decodeJwtPayload = (token) => {
   }
 };
 
-const parseUserIdFromRequest = (req) => {
-  const headerUserId = req.header('x-user-id');
-  if (headerUserId && /^\d+$/.test(String(headerUserId).trim())) {
-    return Number(headerUserId);
+const parsePositiveInteger = (value) => {
+  const raw = String(value ?? '').trim();
+  if (!/^\d+$/.test(raw)) {
+    return null;
   }
+
+  const parsed = Number(raw);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+};
+
+const extractHouseholdIdFromPayload = (payload) => {
+  if (!payload || typeof payload !== 'object') {
+    return null;
+  }
+
+  const rawValue = payload.household_id ?? payload.householdId ?? payload.hid;
+  return parsePositiveInteger(rawValue);
+};
+
+const parseAuthContextFromRequest = (req) => {
+  let userId = parsePositiveInteger(req.header('x-user-id'));
+  let householdId = parsePositiveInteger(req.header('x-household-id'));
 
   const authHeader = req.header('authorization') || '';
   if (authHeader.toLowerCase().startsWith('bearer ')) {
     const token = authHeader.slice(7).trim();
     const payload = decodeJwtPayload(token);
-    const subject = payload && payload.sub;
+    const subject = payload?.sub;
 
-    if ((typeof subject === 'string' || typeof subject === 'number') && /^\d+$/.test(String(subject))) {
-      return Number(subject);
+    if (!userId && (typeof subject === 'string' || typeof subject === 'number')) {
+      userId = parsePositiveInteger(subject);
+    }
+
+    if (!householdId) {
+      householdId = extractHouseholdIdFromPayload(payload);
     }
   }
 
-  return null;
+  return { userId, householdId };
 };
 
 const requireAuthUser = async (req, res, next) => {
-  const userId = parseUserIdFromRequest(req);
+  const authContext = parseAuthContextFromRequest(req);
+  const userId = authContext.userId;
 
   if (!userId) {
     return next(new HttpError(401, 'Authentication required.'));
@@ -50,7 +72,11 @@ const requireAuthUser = async (req, res, next) => {
     return next(new HttpError(401, 'Authenticated user not found.'));
   }
 
-  req.user = user;
+  req.user = {
+    ...user,
+    householdId: authContext.householdId,
+  };
+
   return next();
 };
 

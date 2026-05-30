@@ -13,10 +13,12 @@ const detectConflictsForHousehold = async ({ householdId, db = null }) => {
       e2.id AS event_id_2
      FROM events e1
      INNER JOIN events e2
-       ON e1.household_id = e2.household_id
+     ON e1.household_id = e2.household_id
       AND e1.member_id = e2.member_id
       AND e1.id < e2.id
      WHERE e1.household_id = ?
+       AND e1.deleted_at IS NULL
+       AND e2.deleted_at IS NULL
        AND e1.start_at < e2.end_at
        AND e1.end_at > e2.start_at`,
     [householdId],
@@ -44,6 +46,8 @@ const detectConflictsForHousehold = async ({ householdId, db = null }) => {
         WHERE e1.id = conflicts.event_id_1
           AND e1.household_id = conflicts.household_id
           AND e2.household_id = conflicts.household_id
+          AND e1.deleted_at IS NULL
+          AND e2.deleted_at IS NULL
           AND e1.member_id = e2.member_id
           AND e1.start_at < e2.end_at
           AND e1.end_at > e2.start_at
