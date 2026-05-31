@@ -15,6 +15,7 @@ const runMigrations = async (db) => {
   await db.exec(`
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL DEFAULT '',
       email TEXT NOT NULL UNIQUE,
       password_hash TEXT NOT NULL,
       is_verified INTEGER NOT NULL DEFAULT 0,
@@ -23,6 +24,7 @@ const runMigrations = async (db) => {
     );
   `);
 
+  await ensureColumn(db, 'users', 'name', "TEXT NOT NULL DEFAULT ''");
   await ensureColumn(db, 'users', 'preferences_json', "JSONB NOT NULL DEFAULT '{}'");
 
   await db.exec(`

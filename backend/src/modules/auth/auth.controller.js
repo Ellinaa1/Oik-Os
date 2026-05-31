@@ -3,7 +3,7 @@ const authService = require('./auth.service');
 
 const register = asyncHandler(async (req, res) => {
   const result = await authService.register(req.body || {});
-  res.status(result.statusCode).json({ message: result.message });
+  res.status(201).json(result);
 });
 
 const verifyEmail = asyncHandler(async (req, res) => {

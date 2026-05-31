@@ -1,17 +1,29 @@
 const { getDb } = require('../../db/connection');
+const { HttpError } = require('../../utils/httpError');
 
-const createUser = async ({ email, passwordHash }) => {
+const createUser = async ({ name, email, passwordHash }) => {
   const db = await getDb();
   const now = Date.now();
 
-  const result = await db.run(
-    `INSERT INTO users (email, password_hash, is_verified, created_at, updated_at)
-     VALUES (?, ?, 0, ?, ?)`,
-    [email, passwordHash, now, now],
-  );
+  let result;
+
+  try {
+    result = await db.run(
+      `INSERT INTO users (name, email, password_hash, is_verified, created_at, updated_at)
+       VALUES (?, ?, ?, 0, ?, ?)`,
+      [name, email, passwordHash, now, now],
+    );
+  } catch (error) {
+    if (error && error.code === 'SQLITE_CONSTRAINT') {
+      throw new HttpError(409, 'Email already exists.');
+    }
+
+    throw error;
+  }
 
   return {
     id: result.lastID,
+    name,
     email,
     is_verified: 0,
   };
